@@ -1,22 +1,21 @@
-# send_ticket_panel.py
-
 import os
 
 import discord
 from dotenv import load_dotenv
 
-from ticket import TicketView
+from ticket import TicketPanelView
 
 
 load_dotenv()
 
-TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+TOKEN = os.getenv(
+    "DISCORD_BOT_TOKEN"
+)
 
 PANEL_CHANNEL_ID = 1541000137428570112
 
 
 intents = discord.Intents.default()
-intents.message_content = True
 
 client = discord.Client(
     intents=intents
@@ -37,7 +36,7 @@ async def on_ready():
     if channel is None:
 
         print(
-            "Could not find panel channel."
+            "❌ Panel channel not found."
         )
 
         await client.close()
@@ -46,13 +45,55 @@ async def on_ready():
     embed = discord.Embed(
         title="🎫 Support Center",
         description=(
-            "Need help?\n\n"
-            "Click the button below to create "
-            "a private support ticket.\n\n"
-            "Our support team will be notified "
-            "when you create a ticket."
+            "Need help? Select the category "
+            "that best describes your request.\n\n"
+            "A private ticket will be created "
+            "for you and our staff team will "
+            "be notified."
         ),
         color=discord.Color.blurple()
+    )
+
+    embed.add_field(
+        name="💰 Refunds",
+        value="Refund-related requests",
+        inline=True
+    )
+
+    embed.add_field(
+        name="🐛 Bugs",
+        value="Report technical issues",
+        inline=True
+    )
+
+    embed.add_field(
+        name="❓ Questions",
+        value="Ask our support team",
+        inline=True
+    )
+
+    embed.add_field(
+        name="💬 General",
+        value="General support",
+        inline=True
+    )
+
+    embed.add_field(
+        name="🤝 Partnership Requests",
+        value="Business/partnership requests",
+        inline=True
+    )
+
+    embed.add_field(
+        name="🚨 Report User",
+        value="Report a Discord user",
+        inline=True
+    )
+
+    embed.add_field(
+        name="🔨 Ban Appeals",
+        value="Appeal a server ban",
+        inline=True
     )
 
     embed.set_footer(
@@ -61,7 +102,7 @@ async def on_ready():
 
     await channel.send(
         embed=embed,
-        view=TicketView()
+        view=TicketPanelView()
     )
 
     print(
