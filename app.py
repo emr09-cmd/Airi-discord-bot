@@ -1,29 +1,35 @@
-# app.py
-
 import os
 import hashlib
 
 from dotenv import load_dotenv
+
 import discord
+from discord import app_commands
 
 from ticket import setup_ticket_system
 
 
-# ============================================================
-# CONFIG
-# ============================================================
-
 load_dotenv()
 
-TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+TOKEN = os.getenv(
+    "DISCORD_BOT_TOKEN"
+)
 
 GUILD_ID = 1540389537589633105
 LOG_CHANNEL_ID = 1540674475635245218
 
 
-# ============================================================
-# BAD IMAGE HASHES
-# ============================================================
+intents = discord.Intents.default()
+intents.message_content = True
+
+client = discord.Client(
+    intents=intents
+)
+
+tree = app_commands.CommandTree(
+    client
+)
+
 
 BAD_HASHES = {
     "170319463df4b6d43f74949967d06e27ed0ec74ab877be790f05cee46899f7b3",
@@ -38,36 +44,30 @@ BAD_HASHES = {
 }
 
 
-# ============================================================
-# DISCORD CLIENT
-# ============================================================
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
-intents = discord.Intents.default()
-intents.message_content = True
-
-client = discord.Client(intents=intents)
-
-
-# Prevent registering views more than once.
-ticket_views_loaded = False
-
-
-# ============================================================
-# READY
-# ============================================================
 
 @client.event
 async def on_ready():
 
-    if not hasattr(client, "ticket_system_loaded"):
+    if not hasattr(
+        client,
+        "ticket_system_loaded"
+    ):
 
-        await setup_ticket_system(client)
+        await setup_ticket_system(
+            client,
+            tree
+        )
 
-        await client.tree.sync()
+        await tree.sync()
 
         client.ticket_system_loaded = True
 
-        print("[TICKET] Ticket system loaded.")
+        print(
+            "[TICKET] Ticket system loaded."
+        )
 
     print(
         f"Bot is online as {client.user}"
@@ -77,40 +77,6 @@ async def on_ready():
         f"Connected to {len(client.guilds)} server(s)"
     )
 
-
-# ============================================================
-# INTERACTION DEBUG
-# ============================================================
-
-@client.event
-async def on_interaction(interaction: discord.Interaction):
-
-    print(
-        "[INTERACTION]"
-        f" type={interaction.type}"
-        f" user={interaction.user}"
-        f" guild={interaction.guild_id}"
-    )
-
-    if interaction.type == discord.InteractionType.component:
-
-        print(
-            "[INTERACTION]"
-            f" custom_id={interaction.data.get('custom_id')}"
-        )
-
-
-# ============================================================
-# HASH FUNCTION
-# ============================================================
-
-def sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-# ============================================================
-# MESSAGE SCANNER
-# ============================================================
 
 @client.event
 async def on_message(message):
@@ -140,14 +106,9 @@ async def on_message(message):
             if h in BAD_HASHES:
 
                 matched = True
-
                 break
 
-        except Exception as e:
-
-            print(
-                f"Could not read attachment: {e}"
-            )
+        except Exception:
 
             continue
 
@@ -157,17 +118,9 @@ async def on_message(message):
 
             await message.delete()
 
-            print(
-                f"Deleted scam image from "
-                f"{message.author} "
-                f"({message.author.id})"
-            )
+        except Exception:
 
-        except Exception as e:
-
-            print(
-                f"Could not delete message: {e}"
-            )
+            pass
 
         try:
 
@@ -187,16 +140,10 @@ async def on_message(message):
                     "Scam image has been deleted"
                 )
 
-        except Exception as e:
+        except Exception:
 
-            print(
-                f"Could not send log message: {e}"
-            )
+            pass
 
-
-# ============================================================
-# START
-# ============================================================
 
 if __name__ == "__main__":
 
