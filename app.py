@@ -1,6 +1,4 @@
 # app.py
-# .env:
-# DISCORD_BOT_TOKEN=your_token_here
 
 import os
 import hashlib
@@ -8,7 +6,7 @@ import hashlib
 from dotenv import load_dotenv
 import discord
 
-from ticket import setup_ticket_system
+from ticket import TicketView, TicketControlView
 
 
 # ============================================================
@@ -50,12 +48,61 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 
 
+# Prevent registering views more than once.
+ticket_views_loaded = False
+
+
 # ============================================================
-# TICKET SYSTEM
+# READY
 # ============================================================
 
-# This connects app.py to ticket.py.
-setup_ticket_system(client)
+@client.event
+async def on_ready():
+    global ticket_views_loaded
+
+    if not ticket_views_loaded:
+
+        client.add_view(
+            TicketView()
+        )
+
+        client.add_view(
+            TicketControlView()
+        )
+
+        ticket_views_loaded = True
+
+        print("[TICKET] Persistent views loaded.")
+
+    print(
+        f"Bot is online as {client.user}"
+    )
+
+    print(
+        f"Connected to {len(client.guilds)} server(s)"
+    )
+
+
+# ============================================================
+# INTERACTION DEBUG
+# ============================================================
+
+@client.event
+async def on_interaction(interaction: discord.Interaction):
+
+    print(
+        "[INTERACTION]"
+        f" type={interaction.type}"
+        f" user={interaction.user}"
+        f" guild={interaction.guild_id}"
+    )
+
+    if interaction.type == discord.InteractionType.component:
+
+        print(
+            "[INTERACTION]"
+            f" custom_id={interaction.data.get('custom_id')}"
+        )
 
 
 # ============================================================
@@ -67,86 +114,99 @@ def sha256_bytes(data: bytes) -> str:
 
 
 # ============================================================
-# BOT READY
-# ============================================================
-
-@client.event
-async def on_ready():
-    print(f"Bot is online as {client.user}")
-    print(f"Connected to {len(client.guilds)} server(s)")
-
-
-# ============================================================
 # MESSAGE SCANNER
 # ============================================================
 
 @client.event
 async def on_message(message):
-    # Ignore the bot's own messages.
+
     if message.author == client.user:
         return
 
-    # Ignore messages outside the configured server.
-    if message.guild is None or message.guild.id != GUILD_ID:
+    if (
+        message.guild is None
+        or message.guild.id != GUILD_ID
+    ):
         return
 
-    # Ignore messages without attachments.
     if not message.attachments:
         return
 
     matched = False
 
-    # Check every attachment.
     for att in message.attachments:
+
         try:
+
             data = await att.read()
 
             h = sha256_bytes(data)
 
             if h in BAD_HASHES:
+
                 matched = True
+
                 break
 
         except Exception as e:
-            print(f"Could not read attachment: {e}")
+
+            print(
+                f"Could not read attachment: {e}"
+            )
+
             continue
 
-    # Delete the message if a bad hash was found.
     if matched:
 
         try:
+
             await message.delete()
+
             print(
                 f"Deleted scam image from "
-                f"{message.author} ({message.author.id})"
+                f"{message.author} "
+                f"({message.author.id})"
             )
 
         except Exception as e:
-            print(f"Could not delete message: {e}")
 
-        # Send log message.
+            print(
+                f"Could not delete message: {e}"
+            )
+
         try:
-            ch = client.get_channel(LOG_CHANNEL_ID)
+
+            ch = client.get_channel(
+                LOG_CHANNEL_ID
+            )
 
             if ch is None:
-                ch = await client.fetch_channel(LOG_CHANNEL_ID)
+
+                ch = await client.fetch_channel(
+                    LOG_CHANNEL_ID
+                )
 
             if ch is not None:
+
                 await ch.send(
                     "Scam image has been deleted"
                 )
 
         except Exception as e:
-            print(f"Could not send log message: {e}")
+
+            print(
+                f"Could not send log message: {e}"
+            )
 
 
 # ============================================================
-# START BOT
+# START
 # ============================================================
 
 if __name__ == "__main__":
 
     if not TOKEN:
+
         raise ValueError(
             "DISCORD_BOT_TOKEN missing from .env"
         )
