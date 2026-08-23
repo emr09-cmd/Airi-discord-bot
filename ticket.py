@@ -1,45 +1,30 @@
 # ticket.py
 
 import discord
-from discord.ui import View, Button
+from discord.ui import View
 
 
 # ============================================================
 # CONFIG
 # ============================================================
 
-# Discord CATEGORY ID where tickets should be created.
-#
-# Example:
-# TICKET_CATEGORY_ID = 123456789012345678
-#
-# Leave as 0 if you don't want to use a category.
-
+# Category where tickets will be created.
 TICKET_CATEGORY_ID = 1540454800557084792
 
-
-# Discord CHANNEL ID where ticket logs should be sent.
-#
-# Leave as 0 to disable ticket logs.
-
+# Channel where ticket logs will be sent.
+# Set to 0 to disable logs.
 TICKET_LOG_CHANNEL_ID = 1540674475635245218
 
-
-# Discord ROLE ID for your staff/support team.
-#
-# Staff with this role will be able to see tickets.
-#
-# Leave as 0 if you don't want to use a staff role.
-
+# Staff role that can see/manage tickets.
+# Set to 0 to disable staff-role permissions.
 STAFF_ROLE_ID = 1540501461698482197
 
 
 # ============================================================
-# GET CATEGORY
+# HELPERS
 # ============================================================
 
 def get_ticket_category(guild: discord.Guild):
-
     if TICKET_CATEGORY_ID == 0:
         return None
 
@@ -51,66 +36,42 @@ def get_ticket_category(guild: discord.Guild):
     return None
 
 
-# ============================================================
-# GET STAFF ROLE
-# ============================================================
-
 def get_staff_role(guild: discord.Guild):
-
     if STAFF_ROLE_ID == 0:
         return None
 
     return guild.get_role(STAFF_ROLE_ID)
 
 
-# ============================================================
-# LOGGING
-# ============================================================
-
-async def log_ticket(
-    guild: discord.Guild,
-    message: str
-):
-
+async def log_ticket(guild: discord.Guild, text: str):
     if TICKET_LOG_CHANNEL_ID == 0:
         return
 
-    channel = guild.get_channel(
-        TICKET_LOG_CHANNEL_ID
-    )
+    channel = guild.get_channel(TICKET_LOG_CHANNEL_ID)
 
     if channel is None:
-
         try:
             channel = await guild.fetch_channel(
                 TICKET_LOG_CHANNEL_ID
             )
-
-        except Exception:
+        except Exception as e:
+            print(f"[TICKET] Could not find log channel: {e}")
             return
 
-    if channel is None:
-        return
-
     try:
-        await channel.send(message)
-
-    except Exception:
-        pass
+        await channel.send(text)
+    except Exception as e:
+        print(f"[TICKET] Could not send log: {e}")
 
 
 # ============================================================
-# CLOSE CONFIRMATION VIEW
+# CLOSE CONFIRMATION
 # ============================================================
 
 class CloseConfirmView(View):
 
     def __init__(self):
         super().__init__(timeout=30)
-
-    # --------------------------------------------------------
-    # CONFIRM CLOSE
-    # --------------------------------------------------------
 
     @discord.ui.button(
         label="Confirm Close",
@@ -122,22 +83,21 @@ class CloseConfirmView(View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-
         channel = interaction.channel
 
         if channel is None:
             return
 
-        await interaction.response.send_message(
-            "🔒 Closing this ticket...",
+        # Acknowledge immediately.
+        await interaction.response.defer(
             ephemeral=True
         )
 
-        # Log ticket closure.
-        if interaction.guild is not None:
+        guild = interaction.guild
 
+        if guild is not None:
             await log_ticket(
-                interaction.guild,
+                guild,
                 (
                     f"🔒 Ticket `{channel.name}` "
                     f"closed by "
@@ -145,35 +105,20 @@ class CloseConfirmView(View):
                 )
             )
 
-        # Delete the ticket channel.
         try:
-
             await channel.delete(
-                reason=(
-                    f"Ticket closed by "
-                    f"{interaction.user}"
-                )
+                reason=f"Ticket closed by {interaction.user}"
             )
 
         except discord.Forbidden:
+            print(
+                "[TICKET] Missing permission to delete ticket."
+            )
 
-            try:
-                await interaction.followup.send(
-                    (
-                        "❌ I don't have permission "
-                        "to delete this ticket."
-                    ),
-                    ephemeral=True
-                )
-            except Exception:
-                pass
-
-        except discord.HTTPException:
-            pass
-
-    # --------------------------------------------------------
-    # CANCEL
-    # --------------------------------------------------------
+        except discord.HTTPException as e:
+            print(
+                f"[TICKET] Discord error deleting ticket: {e}"
+            )
 
     @discord.ui.button(
         label="Cancel",
@@ -185,7 +130,6 @@ class CloseConfirmView(View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-
         await interaction.response.edit_message(
             content="Ticket close cancelled.",
             view=None
@@ -199,12 +143,7 @@ class CloseConfirmView(View):
 class TicketControlView(View):
 
     def __init__(self):
-        # Persistent view.
         super().__init__(timeout=None)
-
-    # --------------------------------------------------------
-    # CLOSE TICKET BUTTON
-    # --------------------------------------------------------
 
     @discord.ui.button(
         label="Close Ticket",
@@ -217,41 +156,47 @@ class TicketControlView(View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-
         channel = interaction.channel
-
-        if channel is None:
-            return
-
-        # Only allow the ticket owner or staff to close it.
         guild = interaction.guild
 
-        if guild is None:
+        if channel is None or guild is None:
             return
+
+        # ----------------------------------------------------
+        # CHECK PERMISSIONS
+        # ----------------------------------------------------
 
         allowed = False
 
-        # Check ticket owner.
+        # Ticket owner.
         if channel.topic:
+            owner_prefix = "ticket_owner:"
 
-            expected = f"ticket_owner:{interaction.user.id}"
+            if channel.topic.startswith(owner_prefix):
 
-            if channel.topic == expected:
-                allowed = True
+                try:
+                    owner_id = int(
+                        channel.topic[len(owner_prefix):]
+                    )
 
-        # Check staff role.
+                    if interaction.user.id == owner_id:
+                        allowed = True
+
+                except ValueError:
+                    pass
+
+        # Staff role.
         staff_role = get_staff_role(guild)
 
         if staff_role is not None:
 
-            if staff_role in interaction.user.roles:
-                allowed = True
+            if isinstance(interaction.user, discord.Member):
 
-        # Also allow administrators.
-        if isinstance(
-            interaction.user,
-            discord.Member
-        ):
+                if staff_role in interaction.user.roles:
+                    allowed = True
+
+        # Administrator.
+        if isinstance(interaction.user, discord.Member):
 
             if interaction.user.guild_permissions.administrator:
                 allowed = True
@@ -259,40 +204,31 @@ class TicketControlView(View):
         if not allowed:
 
             await interaction.response.send_message(
-                (
-                    "❌ You don't have permission "
-                    "to close this ticket."
-                ),
+                "❌ You don't have permission to close this ticket.",
                 ephemeral=True
             )
 
             return
 
-        # Ask for confirmation.
+        # ----------------------------------------------------
+        # ASK FOR CONFIRMATION
+        # ----------------------------------------------------
+
         await interaction.response.send_message(
-            (
-                "🔒 **Close Ticket?**\n\n"
-                "Are you sure you want to close "
-                "this ticket?"
-            ),
+            "🔒 Are you sure you want to close this ticket?",
             view=CloseConfirmView(),
             ephemeral=True
         )
 
 
 # ============================================================
-# MAIN TICKET PANEL
+# CREATE TICKET VIEW
 # ============================================================
 
 class TicketView(View):
 
     def __init__(self):
-        # Persistent view.
         super().__init__(timeout=None)
-
-    # --------------------------------------------------------
-    # CREATE TICKET
-    # --------------------------------------------------------
 
     @discord.ui.button(
         label="Create Ticket",
@@ -305,25 +241,34 @@ class TicketView(View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-
         guild = interaction.guild
 
-        # Make sure this is a server.
         if guild is None:
 
             await interaction.response.send_message(
-                (
-                    "❌ Tickets can only be created "
-                    "inside a server."
-                ),
+                "❌ This button can only be used inside a server.",
                 ephemeral=True
             )
 
             return
 
-        # ----------------------------------------------------
+        # ====================================================
+        # IMPORTANT:
+        # ACKNOWLEDGE THE INTERACTION IMMEDIATELY.
+        # ====================================================
+
+        await interaction.response.defer(
+            ephemeral=True
+        )
+
+        print(
+            f"[TICKET] {interaction.user} "
+            f"clicked Create Ticket"
+        )
+
+        # ====================================================
         # CHECK EXISTING TICKET
-        # ----------------------------------------------------
+        # ====================================================
 
         existing_ticket = None
 
@@ -332,12 +277,13 @@ class TicketView(View):
             if channel.topic == (
                 f"ticket_owner:{interaction.user.id}"
             ):
+
                 existing_ticket = channel
                 break
 
         if existing_ticket:
 
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 (
                     "❌ You already have an open ticket:\n"
                     f"{existing_ticket.mention}"
@@ -347,25 +293,22 @@ class TicketView(View):
 
             return
 
-        # ----------------------------------------------------
-        # GET CATEGORY
-        # ----------------------------------------------------
+        # ====================================================
+        # CATEGORY
+        # ====================================================
 
         category = get_ticket_category(guild)
 
-        # ----------------------------------------------------
+        # ====================================================
         # PERMISSIONS
-        # ----------------------------------------------------
+        # ====================================================
 
         overwrites = {
-
-            # Everyone cannot see tickets.
             guild.default_role:
                 discord.PermissionOverwrite(
                     view_channel=False
                 ),
 
-            # Ticket creator can see and use it.
             interaction.user:
                 discord.PermissionOverwrite(
                     view_channel=True,
@@ -376,9 +319,9 @@ class TicketView(View):
                 )
         }
 
-        # ----------------------------------------------------
-        # STAFF PERMISSIONS
-        # ----------------------------------------------------
+        # ====================================================
+        # STAFF ROLE
+        # ====================================================
 
         staff_role = get_staff_role(guild)
 
@@ -396,35 +339,29 @@ class TicketView(View):
                 )
             )
 
-        # ----------------------------------------------------
-        # CREATE CHANNEL NAME
-        # ----------------------------------------------------
+        # ====================================================
+        # CHANNEL NAME
+        # ====================================================
 
         username = interaction.user.name.lower()
 
-        username = (
-            username
-            .replace(" ", "-")
-            .replace("_", "-")
-        )
+        username = username.replace(" ", "-")
+        username = username.replace("_", "-")
 
         username = "".join(
-            character
-            for character in username
-            if character.isalnum()
-            or character == "-"
+            char
+            for char in username
+            if char.isalnum() or char == "-"
         )
 
         if not username:
             username = "user"
 
-        channel_name = (
-            f"ticket-{username}"
-        )
+        channel_name = f"ticket-{username}"
 
-        # ----------------------------------------------------
-        # CREATE TICKET CHANNEL
-        # ----------------------------------------------------
+        # ====================================================
+        # CREATE CHANNEL
+        # ====================================================
 
         try:
 
@@ -446,42 +383,67 @@ class TicketView(View):
 
         except discord.Forbidden:
 
-            await interaction.response.send_message(
+            print(
+                "[TICKET] Discord denied channel creation."
+            )
+
+            await interaction.followup.send(
                 (
-                    "❌ I don't have permission "
-                    "to create ticket channels."
+                    "❌ I don't have permission to "
+                    "create ticket channels.\n\n"
+                    "Give the bot **Manage Channels** "
+                    "permission."
                 ),
                 ephemeral=True
             )
 
             return
 
-        except discord.HTTPException:
+        except discord.HTTPException as e:
 
-            await interaction.response.send_message(
+            print(
+                f"[TICKET] Discord HTTP error: {e}"
+            )
+
+            await interaction.followup.send(
                 (
-                    "❌ Discord failed to create "
-                    "the ticket channel."
+                    "❌ Discord returned an error while "
+                    "creating the ticket."
                 ),
                 ephemeral=True
             )
 
             return
 
-        # ----------------------------------------------------
-        # TICKET EMBED
-        # ----------------------------------------------------
+        except Exception as e:
+
+            print(
+                f"[TICKET] Unexpected error: {e}"
+            )
+
+            await interaction.followup.send(
+                (
+                    "❌ An unexpected error occurred "
+                    "while creating the ticket."
+                ),
+                ephemeral=True
+            )
+
+            return
+
+        # ====================================================
+        # EMBED
+        # ====================================================
 
         embed = discord.Embed(
             title="🎫 Support Ticket",
             description=(
                 f"Welcome {interaction.user.mention}!\n\n"
-                "Thanks for contacting support.\n\n"
-                "Please describe your issue below. "
+                "Please describe your issue below.\n\n"
                 "A member of the support team will "
-                "help you as soon as possible.\n\n"
-                "When your issue is resolved, press "
-                "**Close Ticket**."
+                "assist you as soon as possible.\n\n"
+                "When your issue has been resolved, "
+                "press **🔒 Close Ticket**."
             ),
             color=discord.Color.blurple()
         )
@@ -498,19 +460,13 @@ class TicketView(View):
             inline=True
         )
 
-        embed.add_field(
-            name="Ticket ID",
-            value=str(ticket_channel.id),
-            inline=False
-        )
-
         embed.set_footer(
-            text="Ticket system"
+            text=f"Ticket ID: {ticket_channel.id}"
         )
 
-        # ----------------------------------------------------
+        # ====================================================
         # SEND TICKET MESSAGE
-        # ----------------------------------------------------
+        # ====================================================
 
         try:
 
@@ -520,24 +476,27 @@ class TicketView(View):
                 view=TicketControlView()
             )
 
-        except Exception:
-            pass
+        except Exception as e:
 
-        # ----------------------------------------------------
-        # RESPONSE
-        # ----------------------------------------------------
+            print(
+                f"[TICKET] Could not send ticket message: {e}"
+            )
 
-        await interaction.response.send_message(
+        # ====================================================
+        # RESPOND TO USER
+        # ====================================================
+
+        await interaction.followup.send(
             (
-                "🎫 Your ticket has been created!\n"
+                "🎫 **Ticket created!**\n"
                 f"{ticket_channel.mention}"
             ),
             ephemeral=True
         )
 
-        # ----------------------------------------------------
+        # ====================================================
         # LOG
-        # ----------------------------------------------------
+        # ====================================================
 
         await log_ticket(
             guild,
@@ -548,26 +507,18 @@ class TicketView(View):
             )
         )
 
+        print(
+            f"[TICKET] Created #{ticket_channel.name}"
+        )
+
 
 # ============================================================
-# SETUP FUNCTION
+# SETUP
 # ============================================================
 
-def setup_ticket_system(
-    client: discord.Client
-):
+def setup_ticket_system(client: discord.Client):
 
-    """
-    Connects the ticket system to app.py.
+    client.add_view(TicketView())
+    client.add_view(TicketControlView())
 
-    This registers the persistent ticket buttons
-    so they continue working after bot restarts.
-    """
-
-    client.add_view(
-        TicketView()
-    )
-
-    client.add_view(
-        TicketControlView()
-    )
+    print("[TICKET] Persistent ticket buttons loaded.")
