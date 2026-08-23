@@ -6,7 +6,7 @@ import hashlib
 from dotenv import load_dotenv
 import discord
 
-from ticket import TicketView, TicketControlView
+from ticket import setup_ticket_system
 
 
 # ============================================================
@@ -58,21 +58,16 @@ ticket_views_loaded = False
 
 @client.event
 async def on_ready():
-    global ticket_views_loaded
 
-    if not ticket_views_loaded:
+    if not hasattr(client, "ticket_system_loaded"):
 
-        client.add_view(
-            TicketView()
-        )
+        await setup_ticket_system(client)
 
-        client.add_view(
-            TicketControlView()
-        )
+        await client.tree.sync()
 
-        ticket_views_loaded = True
+        client.ticket_system_loaded = True
 
-        print("[TICKET] Persistent views loaded.")
+        print("[TICKET] Ticket system loaded.")
 
     print(
         f"Bot is online as {client.user}"
