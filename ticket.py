@@ -8,11 +8,11 @@ from discord.ui import View
 # CONFIG
 # ============================================================
 
-TICKET_CATEGORY_ID = 0
+TICKET_CATEGORY_ID = 1540454800557084792
 
-TICKET_LOG_CHANNEL_ID = 0
+TICKET_LOG_CHANNEL_ID = 1540674475635245218
 
-STAFF_ROLE_ID = 0
+STAFF_ROLE_ID = 1540501461698482197
 
 
 # ============================================================
