@@ -164,36 +164,44 @@ async def set_owner_send_permission(
 ):
     """
     Toggle the ticket owner's ability to send messages.
-    Uses discord.Object so it works even when the member is not cached.
+    Prefers a real Member object when available, falls back to Object.
     """
     if not owner_id:
         return False
 
-    target = discord.Object(id=owner_id)
+    # Prefer real Member (more reliable for overwrites)
+    target = channel.guild.get_member(owner_id)
+    if target is None:
+        try:
+            target = await channel.guild.fetch_member(owner_id)
+        except Exception:
+            target = discord.Object(id=owner_id)
+
+    reason = (
+        "Ticket closed – deny send"
+        if not allow
+        else "Ticket reopened – allow send"
+    )
+
+    overwrite = discord.PermissionOverwrite(
+        view_channel=True,
+        send_messages=allow,
+        read_message_history=True,
+        attach_files=allow,
+        embed_links=allow,
+    )
 
     try:
-        # Start from any existing overwrite for this user
-        overwrite = channel.overwrites_for(target)
-
-        overwrite.send_messages = allow
-        overwrite.view_channel = True
-        overwrite.read_message_history = True
-        overwrite.attach_files = allow
-        overwrite.embed_links = allow
-
         await channel.set_permissions(
             target,
             overwrite=overwrite,
-            reason=(
-                "Ticket closed – deny send"
-                if not allow
-                else "Ticket reopened – allow send"
-            )
+            reason=reason
         )
         return True
     except Exception as e:
         print(
-            f"[TICKET] Permission error (owner {owner_id}): {e}"
+            f"[TICKET] Permission error (owner {owner_id}): "
+            f"{type(e).__name__}: {e}"
         )
         return False
 
