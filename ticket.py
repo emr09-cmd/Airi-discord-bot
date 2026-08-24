@@ -98,6 +98,32 @@ def is_ticket(channel):
     )
 
 
+def get_ticket_owner_id(channel):
+    """Extract owner ID from ticket channel topic."""
+    if not channel.topic:
+        return None
+
+    try:
+        return int(
+            channel.topic
+            .split("|")[0]
+            .replace(
+                "ticket_owner:",
+                ""
+            )
+        )
+    except Exception:
+        return None
+
+
+def is_ticket_closed(channel):
+    """Return True if the ticket topic marks it as closed."""
+    return (
+        channel.topic is not None
+        and "|closed" in channel.topic
+    )
+
+
 async def log_ticket(
     guild,
     text
@@ -127,6 +153,32 @@ async def log_ticket(
     except Exception as e:
         print(
             f"[TICKET] Log error: {e}"
+        )
+
+
+async def set_owner_send_permission(
+    channel,
+    owner_id,
+    *,
+    allow: bool
+):
+    """Toggle the ticket owner's ability to send messages."""
+    if not owner_id:
+        return
+
+    owner = channel.guild.get_member(owner_id)
+
+    if owner is None:
+        return
+
+    try:
+        await channel.set_permissions(
+            owner,
+            send_messages=allow
+        )
+    except Exception as e:
+        print(
+            f"[TICKET] Permission error: {e}"
         )
 
 
@@ -614,21 +666,7 @@ class TicketControlView(View):
         # GET OWNER
         # ====================================================
 
-        owner_id = None
-
-        try:
-
-            owner_id = int(
-                channel.topic
-                .split("|")[0]
-                .replace(
-                    "ticket_owner:",
-                    ""
-                )
-            )
-
-        except Exception:
-            pass
+        owner_id = get_ticket_owner_id(channel)
 
         # ====================================================
         # CHECK PERMISSION
@@ -655,7 +693,7 @@ class TicketControlView(View):
         # ALREADY CLOSED
         # ====================================================
 
-        if "|closed" in channel.topic:
+        if is_ticket_closed(channel):
 
             await interaction.response.send_message(
                 "🔴 This ticket is already closed.",
@@ -673,7 +711,7 @@ class TicketControlView(View):
         )
 
         # ====================================================
-        # CHANGE STATUS
+        # CHANGE STATUS (topic)
         # ====================================================
 
         new_topic = (
@@ -698,29 +736,40 @@ class TicketControlView(View):
             )
 
         # ====================================================
+        # RENAME CHANNEL (prefix with closed-)
+        # ====================================================
+
+        current_name = channel.name
+
+        if not current_name.startswith("closed-"):
+            new_name = f"closed-{current_name}"
+
+            # Discord channel name max length is 100
+            if len(new_name) > 100:
+                new_name = new_name[:100]
+
+            try:
+                await channel.edit(
+                    name=new_name,
+                    reason=(
+                        f"Ticket closed by "
+                        f"{interaction.user}"
+                    )
+                )
+            except Exception as e:
+                print(
+                    f"[TICKET] Could not rename channel: {e}"
+                )
+
+        # ====================================================
         # REMOVE USER SEND PERMISSION
         # ====================================================
 
-        if owner_id:
-
-            owner = interaction.guild.get_member(
-                owner_id
-            )
-
-            if owner:
-
-                try:
-
-                    await channel.set_permissions(
-                        owner,
-                        send_messages=False
-                    )
-
-                except Exception as e:
-
-                    print(
-                        f"[TICKET] Permission error: {e}"
-                    )
+        await set_owner_send_permission(
+            channel,
+            owner_id,
+            allow=False
+        )
 
         # ====================================================
         # CLOSED MESSAGE
@@ -730,6 +779,10 @@ class TicketControlView(View):
             title="🔴 Ticket Closed",
             description=(
                 "This ticket has been closed.\n\n"
+                "The ticket owner can no longer "
+                "send messages.\n\n"
+                "Staff or the ticket owner can "
+                "reopen it with **🔓 Reopen Ticket**.\n\n"
                 "Staff can permanently delete this "
                 "ticket with:\n\n"
                 "`/deleteticket`"
@@ -750,7 +803,8 @@ class TicketControlView(View):
         )
 
         await channel.send(
-            embed=embed
+            embed=embed,
+            view=TicketControlView()
         )
 
         await interaction.followup.send(
@@ -762,6 +816,190 @@ class TicketControlView(View):
             interaction.guild,
             (
                 f"🔴 `{channel.name}` closed by "
+                f"{interaction.user.mention}"
+            )
+        )
+
+    @discord.ui.button(
+        label="Reopen Ticket",
+        emoji="🔓",
+        style=discord.ButtonStyle.success,
+        row=0,
+        custom_id="ticket:reopen"
+    )
+    async def reopen_ticket(
+        self,
+        interaction,
+        button
+    ):
+
+        channel = interaction.channel
+
+        # ====================================================
+        # CHECK TICKET
+        # ====================================================
+
+        if not is_ticket(channel):
+
+            await interaction.response.send_message(
+                "❌ This isn't a ticket channel.",
+                ephemeral=True
+            )
+
+            return
+
+        # ====================================================
+        # GET OWNER
+        # ====================================================
+
+        owner_id = get_ticket_owner_id(channel)
+
+        # ====================================================
+        # CHECK PERMISSION
+        # ====================================================
+
+        if (
+            interaction.user.id != owner_id
+            and not is_staff(
+                interaction.user
+            )
+        ):
+
+            await interaction.response.send_message(
+                (
+                    "❌ You don't have permission "
+                    "to reopen this ticket."
+                ),
+                ephemeral=True
+            )
+
+            return
+
+        # ====================================================
+        # ALREADY OPEN
+        # ====================================================
+
+        if not is_ticket_closed(channel):
+
+            await interaction.response.send_message(
+                "🟢 This ticket is already open.",
+                ephemeral=True
+            )
+
+            return
+
+        # ====================================================
+        # ACKNOWLEDGE
+        # ====================================================
+
+        await interaction.response.defer(
+            ephemeral=True
+        )
+
+        # ====================================================
+        # CHANGE STATUS (topic)
+        # ====================================================
+
+        new_topic = (
+            channel.topic
+            .replace(
+                "|closed",
+                ""
+            )
+        )
+
+        if "|open" not in new_topic:
+            new_topic = new_topic + "|open"
+
+        try:
+
+            await channel.edit(
+                topic=new_topic
+            )
+
+        except Exception as e:
+
+            print(
+                f"[TICKET] Could not update topic: {e}"
+            )
+
+        # ====================================================
+        # RENAME CHANNEL (remove closed- prefix)
+        # ====================================================
+
+        current_name = channel.name
+
+        if current_name.startswith("closed-"):
+            new_name = current_name[len("closed-"):]
+
+            if not new_name:
+                new_name = "ticket"
+
+            try:
+                await channel.edit(
+                    name=new_name,
+                    reason=(
+                        f"Ticket reopened by "
+                        f"{interaction.user}"
+                    )
+                )
+            except Exception as e:
+                print(
+                    f"[TICKET] Could not rename channel: {e}"
+                )
+
+        # ====================================================
+        # RESTORE USER SEND PERMISSION
+        # ====================================================
+
+        await set_owner_send_permission(
+            channel,
+            owner_id,
+            allow=True
+        )
+
+        # ====================================================
+        # REOPENED MESSAGE
+        # ====================================================
+
+        embed = discord.Embed(
+            title="🟢 Ticket Reopened",
+            description=(
+                "This ticket has been reopened.\n\n"
+                "The ticket owner can send messages "
+                "again.\n\n"
+                "When finished, click "
+                "**🔒 Close Ticket**."
+            ),
+            color=discord.Color.green()
+        )
+
+        embed.add_field(
+            name="Reopened By",
+            value=interaction.user.mention,
+            inline=True
+        )
+
+        embed.add_field(
+            name="Status",
+            value="🟢 OPEN",
+            inline=True
+        )
+
+        await channel.send(
+            embed=embed,
+            view=TicketControlView()
+        )
+
+        await interaction.followup.send(
+            "🟢 Ticket reopened.",
+            ephemeral=True
+        )
+
+        await log_ticket(
+            interaction.guild,
+            (
+                f"🟢 `{channel.name}` reopened by "
                 f"{interaction.user.mention}"
             )
         )
@@ -880,7 +1118,7 @@ async def setup_ticket_system(
         TicketPanelView()
     )
 
-    # Persistent close button.
+    # Persistent close + reopen buttons.
     bot.add_view(
         TicketControlView()
     )
