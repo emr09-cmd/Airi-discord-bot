@@ -7,6 +7,7 @@ import discord
 from discord import app_commands
 
 from ticket import setup_ticket_system
+from mc_status import start_status_task, update_status_message
 
 
 load_dotenv()
@@ -68,6 +69,17 @@ async def on_ready():
         print(
             "[TICKET] Ticket system loaded."
         )
+
+    # Minecraft status: send/update once immediately, then every 2 minutes
+    if not hasattr(client, "mc_status_started"):
+        # First update right away so the channel gets a message on startup
+        try:
+            await update_status_message(client)
+        except Exception as e:
+            print(f"[MC STATUS] Initial update failed: {e}")
+
+        start_status_task(client)
+        client.mc_status_started = True
 
     print(
         f"Bot is online as {client.user}"
