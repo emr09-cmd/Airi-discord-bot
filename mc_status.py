@@ -1,9 +1,12 @@
 # mc_status.py
 # Minecraft server status – posts once, then edits the same message every 2 minutes.
 
+from __future__ import annotations
+
 import json
 import os
 from datetime import datetime, timezone
+from typing import Optional, Dict, Any
 
 import discord
 from discord.ext import tasks
@@ -29,7 +32,7 @@ MESSAGE_ID_FILE = os.path.join(
 # MESSAGE ID PERSISTENCE
 # ============================================================
 
-def load_message_id() -> int | None:
+def load_message_id() -> Optional[int]:
     try:
         if not os.path.exists(MESSAGE_ID_FILE):
             return None
@@ -56,7 +59,7 @@ def save_message_id(message_id: int) -> None:
 # API FETCH
 # ============================================================
 
-def fetch_server_status() -> dict | None:
+def fetch_server_status() -> Optional[Dict[str, Any]]:
     """Fetch status from mcsrvstat.us. Returns dict or None on error."""
     try:
         resp = requests.get(API_URL, timeout=10)
@@ -81,7 +84,7 @@ def fetch_server_status() -> dict | None:
 # EMBED BUILDER
 # ============================================================
 
-def build_status_embed(data: dict | None) -> discord.Embed:
+def build_status_embed(data: Optional[Dict[str, Any]]) -> discord.Embed:
     now = datetime.now(timezone.utc)
 
     if data is None:
