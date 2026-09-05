@@ -14,6 +14,7 @@ STATUS_CHANNEL_ID = 1545678997197946910
 SERVER_ADDRESS = "104.243.39.147:25694"
 API_URL = f"https://api.mcsrvstat.us/3/{SERVER_ADDRESS}"
 MESSAGE_ID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mc_status_message_id.txt")
+MAINTENANCE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mc_maintenance.txt")
 
 
 def load_message_id() -> int | None:
@@ -30,6 +31,25 @@ def save_message_id(message_id: int) -> None:
         file.write(str(message_id))
 
 
+def is_maintenance() -> bool:
+    try:
+        with open(MAINTENANCE_FILE, "r", encoding="utf-8") as file:
+            return file.read().strip() == "1"
+    except FileNotFoundError:
+        return False
+
+
+def set_maintenance(enabled: bool) -> None:
+    if enabled:
+        with open(MAINTENANCE_FILE, "w", encoding="utf-8") as file:
+            file.write("1")
+    else:
+        try:
+            os.remove(MAINTENANCE_FILE)
+        except FileNotFoundError:
+            pass
+
+
 def fetch_server_status() -> dict[str, Any] | None:
     request = Request(API_URL, headers={"User-Agent": "DiscordBotDashboard/1.0"})
     try:
@@ -42,6 +62,22 @@ def fetch_server_status() -> dict[str, Any] | None:
 
 def build_status_embed(data: dict[str, Any] | None) -> discord.Embed:
     now = datetime.now(timezone.utc)
+    api_motd = "-"
+    if data:
+        api_motd = "\n".join((data.get("motd") or {}).get("clean") or []).strip() or "-"
+
+    if is_maintenance():
+        embed = discord.Embed(
+            title="🛠️ Minecraft Server Under Maintenance",
+            description="The server is temporarily unavailable while maintenance is in progress.",
+            color=discord.Color.orange(),
+            timestamp=now,
+        )
+        embed.add_field(name="Server", value=f"`{SERVER_ADDRESS}`", inline=False)
+        embed.add_field(name="MOTD", value=api_motd[:1024], inline=False)
+        embed.set_footer(text="Maintenance mode enabled from the dashboard")
+        return embed
+
     if data is None:
         embed = discord.Embed(
             title="Minecraft Server Status",
@@ -50,6 +86,7 @@ def build_status_embed(data: dict[str, Any] | None) -> discord.Embed:
             timestamp=now,
         )
         embed.add_field(name="Server", value=f"`{SERVER_ADDRESS}`", inline=False)
+        embed.add_field(name="MOTD", value="Unavailable", inline=False)
         embed.set_footer(text="Status updates automatically")
         return embed
 
@@ -61,11 +98,12 @@ def build_status_embed(data: dict[str, Any] | None) -> discord.Embed:
             timestamp=now,
         )
         embed.add_field(name="Server", value=f"`{SERVER_ADDRESS}`", inline=False)
+        embed.add_field(name="MOTD", value=api_motd[:1024], inline=False)
         embed.set_footer(text="Status updates automatically")
         return embed
 
     players = data.get("players") or {}
-    motd = "\n".join((data.get("motd") or {}).get("clean") or []).strip() or "-"
+    motd = api_motd
     version = data.get("version") or (data.get("protocol") or {}).get("name") or "Unknown"
     player_names = [player.get("name", "?") for player in players.get("list") or []]
     players_text = ", ".join(f"`{name}`" for name in player_names[:20])
@@ -76,11 +114,12 @@ def build_status_embed(data: dict[str, Any] | None) -> discord.Embed:
 
     embed = discord.Embed(
         title="🟢 Minecraft Server Online",
-        description=motd[:1024],
+        description="Minecraft server status",
         color=discord.Color.green(),
         timestamp=now,
     )
     embed.add_field(name="Server", value=f"`{SERVER_ADDRESS}`", inline=False)
+    embed.add_field(name="MOTD", value=motd[:1024], inline=False)
     embed.add_field(name="Players", value=f"**{players.get('online', 0)}** / **{players.get('max', 0)}**", inline=True)
     embed.add_field(name="Version", value=f"`{version}`", inline=True)
     embed.add_field(name="Software", value=f"`{data.get('software') or 'Unknown'}`", inline=True)

@@ -529,10 +529,13 @@ async def minecraft_page(request: web.Request):
 <tr><td>API</td><td><a href="{e(mc_status.API_URL)}" target="_blank">mcsrvstat.us</a></td></tr>
 <tr><td>Channel</td><td><code>{mc_status.STATUS_CHANNEL_ID}</code></td></tr>
 <tr><td>Saved message</td><td><code>{message_id or 'not created'}</code></td></tr>
+<tr><td>Maintenance mode</td><td><span class="badge {'bad' if mc_status.is_maintenance() else 'ok'}">{'enabled' if mc_status.is_maintenance() else 'disabled'}</span></td></tr>
 <tr><td>Automatic updater</td><td><span class="badge {'ok' if loop.is_running() else 'bad'}">{'running' if loop.is_running() else 'stopped'}</span></td></tr></table>
 </div>
 <div class="card"><h2>Maintenance actions</h2>
-<p class="muted">Use force update to refresh the existing embed. Resend and replace deletes the saved message, posts a new embed, and saves its new ID.</p>
+<p class="muted">Maintenance mode changes the embed immediately. Disable it to return to the normal live server status and MOTD.</p>
+<form method="post" action="/minecraft/maintenance/on"><button class="btn red">🛠️ Mark under maintenance</button></form><br>
+<form method="post" action="/minecraft/maintenance/off"><button class="btn green">✅ Remove maintenance mark</button></form><br>
 <form method="post" action="/minecraft/force"><button class="btn">🔄 Force status update</button></form><br>
 <form method="post" action="/minecraft/resend" onsubmit="return confirm('Delete the current status message and send a replacement?')"><button class="btn red">♻️ Resend and replace</button></form>
 </div></div>"""
@@ -561,6 +564,29 @@ async def minecraft_resend(request: web.Request):
         raise
     except Exception as error:
         raise redirect_with_flash(request, "/minecraft", f"Minecraft replacement failed: {error}")
+
+
+async def _set_minecraft_maintenance(request: web.Request, enabled: bool):
+    try:
+        mc_status.set_maintenance(enabled)
+        await mc_status.update_status_message(client)
+        label = "enabled" if enabled else "removed"
+        _log(f"Minecraft maintenance mode {label}")
+        raise redirect_with_flash(request, "/minecraft", f"Minecraft maintenance mode {label}.")
+    except web.HTTPException:
+        raise
+    except Exception as error:
+        raise redirect_with_flash(request, "/minecraft", f"Maintenance update failed: {error}")
+
+
+@require_login
+async def minecraft_maintenance_on(request: web.Request):
+    return await _set_minecraft_maintenance(request, True)
+
+
+@require_login
+async def minecraft_maintenance_off(request: web.Request):
+    return await _set_minecraft_maintenance(request, False)
 
 
 # ============================================================
@@ -612,6 +638,8 @@ def create_app() -> web.Application:
         web.get("/minecraft", minecraft_page),
         web.post("/minecraft/force", minecraft_force),
         web.post("/minecraft/resend", minecraft_resend),
+        web.post("/minecraft/maintenance/on", minecraft_maintenance_on),
+        web.post("/minecraft/maintenance/off", minecraft_maintenance_off),
         web.get("/security", security_page),
         web.get("/server", server_page),
         web.get("/logs", logs_page),
