@@ -7,6 +7,7 @@ import discord
 from discord import app_commands
 
 from ticket import setup_ticket_system
+from mc_status import start_status_task, update_status_message
 
 
 load_dotenv()
@@ -69,6 +70,14 @@ async def on_ready():
         print(
             "[TICKET] Ticket system loaded."
         )
+
+    if not hasattr(client, "mc_status_started"):
+        try:
+            await update_status_message(client)
+        except Exception as error:
+            print(f"[MC STATUS] Initial update failed: {error}")
+        start_status_task(client)
+        client.mc_status_started = True
 
     print(
         f"Bot is online as {client.user}"

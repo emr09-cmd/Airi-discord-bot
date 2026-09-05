@@ -18,6 +18,7 @@ import discord
 from aiohttp import web
 
 import main as bot_main            # your existing bot (client, tree, BAD_HASHES ...)
+import mc_status                   # Minecraft status updater
 import ticket                      # your existing ticket module
 from ticket import (
     TICKET_TYPES,
@@ -178,6 +179,7 @@ def page(title: str, body: str, active: str = "", flash: str | None = None) -> w
     for href, label, key in [
         ("/", "Overview", "overview"),
         ("/tickets", "Tickets", "tickets"),
+        ("/minecraft", "Minecraft", "minecraft"),
         ("/security", "Scam Filter", "security"),
         ("/server", "Server", "server"),
         ("/logs", "Activity", "logs"),
@@ -513,6 +515,55 @@ async def server_page(request: web.Request):
 
 
 # ============================================================
+# ROUTES - MINECRAFT MAINTENANCE
+# ============================================================
+
+@require_login
+async def minecraft_page(request: web.Request):
+    loop = mc_status.status_loop
+    message_id = mc_status.load_message_id()
+    body = f"""<h1>Minecraft Maintenance</h1>
+<div class="grid g2">
+<div class="card"><h2>Status embed</h2>
+<table><tr><td>Server</td><td><code>{e(mc_status.SERVER_ADDRESS)}</code></td></tr>
+<tr><td>API</td><td><a href="{e(mc_status.API_URL)}" target="_blank">mcsrvstat.us</a></td></tr>
+<tr><td>Channel</td><td><code>{mc_status.STATUS_CHANNEL_ID}</code></td></tr>
+<tr><td>Saved message</td><td><code>{message_id or 'not created'}</code></td></tr>
+<tr><td>Automatic updater</td><td><span class="badge {'ok' if loop.is_running() else 'bad'}">{'running' if loop.is_running() else 'stopped'}</span></td></tr></table>
+</div>
+<div class="card"><h2>Maintenance actions</h2>
+<p class="muted">Use force update to refresh the existing embed. Resend and replace deletes the saved message, posts a new embed, and saves its new ID.</p>
+<form method="post" action="/minecraft/force"><button class="btn">🔄 Force status update</button></form><br>
+<form method="post" action="/minecraft/resend" onsubmit="return confirm('Delete the current status message and send a replacement?')"><button class="btn red">♻️ Resend and replace</button></form>
+</div></div>"""
+    return page("Minecraft", body, "minecraft", pop_flash(request))
+
+
+@require_login
+async def minecraft_force(request: web.Request):
+    try:
+        await mc_status.update_status_message(client)
+        _log("Forced Minecraft status update")
+        raise redirect_with_flash(request, "/minecraft", "Minecraft status embed updated.")
+    except web.HTTPException:
+        raise
+    except Exception as error:
+        raise redirect_with_flash(request, "/minecraft", f"Minecraft update failed: {error}")
+
+
+@require_login
+async def minecraft_resend(request: web.Request):
+    try:
+        await mc_status.resend_status_message(client)
+        _log("Replaced Minecraft status message")
+        raise redirect_with_flash(request, "/minecraft", "Minecraft status embed replaced.")
+    except web.HTTPException:
+        raise
+    except Exception as error:
+        raise redirect_with_flash(request, "/minecraft", f"Minecraft replacement failed: {error}")
+
+
+# ============================================================
 # ROUTES – ACTIVITY LOG / JSON API
 # ============================================================
 
@@ -558,6 +609,9 @@ def create_app() -> web.Application:
         web.post("/tickets/{id}/close", ticket_close),
         web.post("/tickets/{id}/reopen", ticket_reopen),
         web.post("/tickets/{id}/delete", ticket_delete),
+        web.get("/minecraft", minecraft_page),
+        web.post("/minecraft/force", minecraft_force),
+        web.post("/minecraft/resend", minecraft_resend),
         web.get("/security", security_page),
         web.get("/server", server_page),
         web.get("/logs", logs_page),
