@@ -102,7 +102,8 @@ async def update_status_message(client: discord.Client) -> None:
         print(f"[MC STATUS] Channel {STATUS_CHANNEL_ID} is not a text channel")
         return
 
-    data = await asyncio.to_thread(fetch_server_status)
+    loop = asyncio.get_running_loop()
+    data = await loop.run_in_executor(None, fetch_server_status)
     embed = build_status_embed(data)
     message_id = load_message_id()
 
@@ -147,7 +148,8 @@ async def resend_status_message(client: discord.Client) -> None:
         except discord.NotFound:
             pass
 
-    data = await asyncio.to_thread(fetch_server_status)
+    loop = asyncio.get_running_loop()
+    data = await loop.run_in_executor(None, fetch_server_status)
     message = await channel.send(embed=build_status_embed(data))
     save_message_id(message.id)
     print(f"[MC STATUS] Replaced message with {message.id}")
